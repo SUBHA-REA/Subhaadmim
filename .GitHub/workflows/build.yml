@@ -1,0 +1,424 @@
+name: Build
+on: [push, workflow_dispatch]
+
+# ===== EDIT ONLY THESE LINES (keep the quotes, don't put quote marks inside) =====
+env:
+  APP_NAME: "SUBHAMODS"
+  HANDLE: "@devl14oper"
+  AVATAR_URL: "https://ibb.co/Cr0xwnS"
+  FOLLOW_URL: "https://www.instagram.com/devl14oper?evlk=NjdyOTM2c3FqMTJo"
+  BOOKMARK_URL: "https://example.com"
+  RATING: "4.9"
+  POSTS: "8"
+  FOLLOWERS: "100"
+  DB_URL: "https://YOUR-PROJECT-default-rtdb.firebaseio.com"
+# ================================================================================
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: 8.7 }
+      - name: Write project files
+        run: |
+          mkdir -p admin admin/src/main admin/src/main/java/com/licensedialog/admin dialog dialog/src/main dialog/src/main/java/com/licensedialog
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = 'LicenseDialog'
+          include ':dialog', ':admin'
+          EOF
+          cat > build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=false
+          EOF
+          cat > dialog/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.licensedialog'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.licensedialog.dex'
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+          cat > dialog/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <application android:label="LoginDex"/>
+          </manifest>
+          EOF
+          cat > dialog/src/main/java/com/licensedialog/Net.java <<'EOF'
+          package com.licensedialog;
+
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+
+          class Net {
+              static class Res { int code; String body; long serverTime; }
+
+              static Res request(String method, String url, String body) {
+                  Res r = new Res();
+                  HttpURLConnection c = null;
+                  try {
+                      c = (HttpURLConnection) new URL(url).openConnection();
+                      c.setConnectTimeout(10000);
+                      c.setReadTimeout(10000);
+                      c.setUseCaches(false);
+                      c.setRequestMethod(method);
+                      if (body != null) {
+                          c.setDoOutput(true);
+                          c.setRequestProperty("Content-Type", "application/json");
+                          OutputStream os = c.getOutputStream();
+                          os.write(body.getBytes("UTF-8"));
+                          os.close();
+                      }
+                      r.code = c.getResponseCode();
+                      r.serverTime = c.getDate();
+                      InputStream in = r.code >= 400 ? c.getErrorStream() : c.getInputStream();
+                      if (in != null) {
+                          ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                          byte[] buf = new byte[4096];
+                          int n;
+                          while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+                          in.close();
+                          r.body = bo.toString("UTF-8");
+                      }
+                  } catch (Exception e) {
+                      r.code = 0;
+                  } finally {
+                      if (c != null) c.disconnect();
+                  }
+                  return r;
+              }
+
+              static Bitmap bitmap(String url) {
+                  try {
+                      if (url == null || url.length() == 0) return null;
+                      HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                      c.setConnectTimeout(10000);
+                      c.setReadTimeout(10000);
+                      InputStream in = c.getInputStream();
+                      Bitmap b = BitmapFactory.decodeStream(in);
+                      in.close();
+                      return b;
+                  } catch (Exception e) {
+                      return null;
+                  }
+              }
+          }
+          EOF
+          cat > dialog/src/main/java/com/licensedialog/Login.java <<'EOF'
+          package com.licensedialog;
+
+          import android.app.Activity;
+          import android.app.Dialog;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Bitmap;
+          import android.graphics.Canvas;
+          import android.graphics.Color;
+          import android.graphics.Paint;
+          import android.graphics.Path;
+          import android.graphics.Typeface;
+          import android.graphics.drawable.ColorDrawable;
+          import android.graphics.drawable.GradientDrawable;
+          import android.net.Uri;
+          import android.provider.Settings;
+          import android.text.InputType;
+          import android.text.TextUtils;
+          import android.view.Gravity;
+          import android.view.MotionEvent;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.view.Window;
+          import android.view.WindowManager;
+          import android.widget.EditText;
+          import android.widget.FrameLayout;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import org.json.JSONObject;
+
+          /**
+           * Entry point. Call from the target app's main Activity.onCreate:
+           *   invoke-static {p0}, Lcom/licensedialog/Login;->show(Landroid/app/Activity;)V
+           */
+          public class Login {
+              static volatile boolean ok = false;
+              static Dialog active;
+
+              public static void show(final Activity act) {
+                  act.runOnUiThread(new Runnable() {
+                      public void run() {
+                          if (ok) return;
+                          if (active != null) {
+                              try { active.dismiss(); } catch (Exception ignored) {}
+                              active = null;
+                          }
+                          new Login(act).start();
+                      }
+                  });
+              }
+
+              final Activity act;
+              final String devId;
+              final SharedPreferences sp;
+              Dialog dialog;
+              TextView tvName, tvHandle, tvMsg, tvLabel;
+              TextView[] statVals = new TextView[3];
+              EditText etKey;
+              ImageView avatar;
+              FrameLayout slider;
+              View knob;
+              volatile String followUrl = Config.FOLLOW_URL;
+              volatile String bookmarkUrl = Config.BOOKMARK_URL;
+              boolean busy = false;
+
+              Login(Activity a) {
+                  act = a;
+                  sp = a.getSharedPreferences("lic_login", 0);
+                  String id = Settings.Secure.getString(a.getContentResolver(), Settings.Secure.ANDROID_ID);
+                  devId = id == null ? "unknown" : id;
+              }
+
+              // ---------------------------------------------------------------- flow
+
+              void start() {
+                  final String saved = sp.getString("key", "");
+                  if (saved.length() == 0) { buildAndShow(null); return; }
+                  new Thread(new Runnable() {
+                      public void run() {
+                          final String err = verify(saved);
+                          act.runOnUiThread(new Runnable() {
+                              public void run() {
+                                  if (err == null) ok = true;
+                                  else buildAndShow(err);
+                              }
+                          });
+                      }
+                  }).start();
+              }
+
+              /** returns null when the key is valid, otherwise an error message */
+              String verify(String key) {
+                  try {
+                      key = key.trim();
+                      if (!key.matches("[A-Za-z0-9_-]{4,64}")) return "Invalid key format";
+                      Net.Res r = Net.request("GET", Config.DB_URL + "/keys/" + key + ".json", null);
+                      if (r.code == 0) return "No internet connection";
+                      if (r.code != 200) return "Server error (" + r.code + ")";
+                      if (r.body == null || !r.body.trim().startsWith("{")) return "Key not found";
+                      JSONObject o = new JSONObject(r.body);
+                      if (!o.optBoolean("active", true)) return "Key is disabled";
+                      long exp = o.optLong("expires", 0);
+                      long now = r.serverTime > 0 ? r.serverTime : System.currentTimeMillis();
+                      if (exp > 0 && now > exp) return "Key expired";
+                      String dev = o.optString("device", "");
+                      if (dev.length() == 0) {
+                          Net.Res b = Net.request("PUT", Config.DB_URL + "/keys/" + key + "/device.json",
+                                  "\"" + devId + "\"");
+                          if (b.code != 200) return "Could not activate key";
+                      } else if (!dev.equals(devId)) {
+                          return "Key is already used on another device";
+                      }
+                      return null;
+                  } catch (Exception e) {
+                      return "Error: " + e.getMessage();
+                  }
+              }
+
+              void doLogin() {
+                  final String key = etKey.getText().toString().trim();
+                  if (key.length() == 0) {
+                      showMsg("Enter your license key");
+                      resetKnob();
+                      return;
+                  }
+                  busy = true;
+                  tvMsg.setVisibility(View.GONE);
+                  tvLabel.setText("Checking...");
+                  new Thread(new Runnable() {
+                      public void run() {
+                          final String err = verify(key);
+                          act.runOnUiThread(new Runnable() {
+                              public void run() {
+                                  busy = false;
+                                  if (err == null) {
+                                      sp.edit().putString("key", key).apply();
+                                      ok = true;
+                                      active = null;
+                                      try { dialog.dismiss(); } catch (Exception ignored) {}
+                                      Toast.makeText(act, "Login successful", Toast.LENGTH_SHORT).show();
+                                  } else {
+                                      showMsg(err);
+                                      tvLabel.setText("Swipe to Login");
+                                      resetKnob();
+                                  }
+                              }
+                          });
+                      }
+                  }).start();
+              }
+
+              // ---------------------------------------------------------------- UI
+
+              void buildAndShow(String firstMsg) {
+                  if (act.isFinishing()) return;
+                  int w = Math.min(dp(380), (int) (act.getResources().getDisplayMetrics().widthPixels * 0.92f));
+
+                  FrameLayout card = new FrameLayout(act);
+                  card.setBackground(shape(Color.BLACK, 0xFF2B2B2B, 1, 28));
+                  card.setClipToOutline(true);
+                  card.addView(new Bg(act), new FrameLayout.LayoutParams(-1, -1));
+
+                  LinearLayout col = new LinearLayout(act);
+                  col.setOrientation(LinearLayout.VERTICAL);
+                  col.setPadding(dp(20), dp(24), dp(20), dp(24));
+                  card.addView(col, new FrameLayout.LayoutParams(-1, -2));
+
+                  // avatar
+                  avatar = new ImageView(act);
+                  avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                  avatar.setPadding(dp(3), dp(3), dp(3), dp(3));
+                  avatar.setCropToPadding(true);
+                  GradientDrawable ring = new GradientDrawable();
+                  ring.setShape(GradientDrawable.OVAL);
+                  ring.setColor(0xFF1A1A1A);
+                  ring.setStroke(dp(3), Color.WHITE);
+                  avatar.setBackground(ring);
+                  avatar.setClipToOutline(true);
+                  col.addView(avatar, new LinearLayout.LayoutParams(dp(96), dp(96)));
+
+                  // name row: name + handle | follow | bookmark
+                  LinearLayout row = new LinearLayout(act);
+                  row.setOrientation(LinearLayout.HORIZONTAL);
+                  row.setGravity(Gravity.CENTER_VERTICAL);
+                  col.addView(row, lp(12));
+
+                  LinearLayout names = new LinearLayout(act);
+                  names.setOrientation(LinearLayout.VERTICAL);
+                  tvName = text(Config.NAME, 26, Color.WHITE, true);
+                  tvName.setSingleLine();
+                  tvName.setEllipsize(TextUtils.TruncateAt.END);
+                  tvHandle = text(Config.HANDLE, 13, 0xFF9A9A9A, false);
+                  tvHandle.setSingleLine();
+                  names.addView(tvName);
+                  names.addView(tvHandle);
+                  row.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
+
+                  TextView follow = pill("Follow", 0xFF1C1C1C, Color.WHITE);
+                  follow.setBackground(shape(0xFF1C1C1C, 0xFF3A3A3A, 1, 22));
+                  follow.setPadding(dp(18), dp(10), dp(18), dp(10));
+                  follow.setOnClickListener(new View.OnClickListener() {
+                      public void onClick(View v) { open(followUrl); }
+                  });
+                  LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-2, -2);
+                  fp.leftMargin = dp(8);
+                  row.addView(follow, fp);
+
+                  TextView mark = text("\uD83D\uDD16", 16, Color.WHITE, false);
+                  mark.setGravity(Gravity.CENTER);
+                  mark.setBackground(shape(0xFF1C1C1C, 0xFF3A3A3A, 1, 20));
+                  mark.setOnClickListener(new View.OnClickListener() {
+                      public void onClick(View v) { open(bookmarkUrl); }
+                  });
+                  LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(dp(40), dp(40));
+                  mp.leftMargin = dp(8);
+                  row.addView(mark, mp);
+
+                  // stats
+                  LinearLayout stats = new LinearLayout(act);
+                  stats.setOrientation(LinearLayout.HORIZONTAL);
+                  col.addView(stats, lp(18));
+                  String[] labels = {"Rating", "Posts", "Followers"};
+                  for (int i = 0; i < 3; i++) {
+                      LinearLayout cell = new LinearLayout(act);
+                      cell.setOrientation(LinearLayout.VERTICAL);
+                      cell.setGravity(Gravity.CENTER_HORIZONTAL);
+                      statVals[i] = text("", 17, Color.WHITE, true);
+                      cell.addView(statVals[i]);
+                      cell.addView(text(labels[i], 12, 0xFF9A9A9A, false));
+                      stats.addView(cell, new LinearLayout.LayoutParams(0, -2, 1f));
+                  }
+                  setStats(Config.RATING, Config.POSTS, Config.FOLLOWERS);
+
+                  // device id row
+                  LinearLayout idRow = field();
+                  TextView tvId = text("ID: " + devId, 14, 0xFFE0E0E0, false);
+                  tvId.setSingleLine();
+                  idRow.addView(tvId, new LinearLayout.LayoutParams(0, -2, 1f));
+                  TextView copy = pill("COPY", 0xFF2A2A2A, Color.WHITE);
+                  copy.setOnClickListener(new View.OnClickListener() {
+                      public void onClick(View v) {
+                          ClipboardManager cm = (ClipboardManager) act.getSystemService(Context.CLIPBOARD_SERVICE);
+                          if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("id", devId));
+                          Toast.makeText(act, "ID copied", Toast.LENGTH_SHORT).show();
+                      }
+                  });
+                  idRow.addView(copy);
+                  col.addView(idRow, lp(16));
+
+                  // key row
+                  LinearLayout keyRow = field();
+                  etKey = new EditText(act);
+                  etKey.setHint("Enter License Key...");
+                  etKey.setHintTextColor(0xFF777777);
+                  etKey.setTextColor(Color.WHITE);
+                  etKey.setTextSize(14);
+                  etKey.setSingleLine(true);
+                  etKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+                  etKey.setBackgroundColor(Color.TRANSPARENT);
+                  etKey.setPadding(0, dp(8), 0, dp(8));
+                  keyRow.addView(etKey, new LinearLayout.LayoutParams(0, -2, 1f));
+                  TextView paste = pill("PASTE", 0xFF2A2A2A, Color.WHITE);
+                  paste.setOnClickListener(new View.OnClickListener() {
+                      public void onClick(View v) {
+                          ClipboardManager cm = (ClipboardManager) act.getSystemService(Context.CLIPBOARD_SERVICE);
+                          if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+                              CharSequence t = cm.getPrimaryClip().getItemAt(0).coerceToText(act);
+                              if (t != null) etKey.setText(t.toString().trim());
+                          }
+                      }
+                  });
+                  keyRow.addView(paste);
+                  col.addView(keyRow, lp(12));
+
+                  // message
+                  tvMsg = text("", 13, 0xFFFF6B6B, false);
+                  tvMsg.setGravity(Gravity.CENTER);
+                  tvMsg.setVisibility(View.GONE);
+                  col.addView(tvMsg, lp(10));
+
+                  // swipe slider
+                  slider = new FrameLayout(act);
+                  slider.setBackground(shape(Color.WHITE, 0, 0, 30));
+                  tvLabel = text("Swipe to Login", 16, Color.BLACK, true);
+                  tvLabel.setGravity(Gravity.CENTER);
+                  slider.addView(tvLabel, new FrameLayout.LayoutParams(-1, -1));
+                  knob = text("\u279C", 20, Color.WHITE, true);
+                  ((TextView) knob).setGravity(Gravity.CENTER);
+                  knob.setBackground(shape(Color.BLACK, 0, 0, 24));
+                  FrameLayout.LayoutParams kp = new FrameLayout.LayoutParams(dp(48), dp(48),
+                          Gravity.CENTER_VERTICAL | Gravity.ST  
